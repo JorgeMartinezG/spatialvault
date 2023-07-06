@@ -1,5 +1,5 @@
 [package]
-name = "msft_footprints"
+name = "msfp2pgsql"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.3.10", features = ["derive"] }
+csv = "1.2.2"
 env_logger = "0.10.0"
 log = "0.4.19"
-reqwest = { version = "0.11.18", features = ["blocking", "json"] }
+reqwest = { version = "0.11.18", features = ["blocking"] }
+serde = { version = "1.0.166", features = ["derive"] }
