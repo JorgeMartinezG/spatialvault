@@ -1,6 +1,9 @@
 use clap::Parser;
+use flate2::read::GzDecoder;
 use log::info;
 use serde::Deserialize;
+use serde_json::Value;
+use std::io::prelude::*;
 
 pub const CSV_URL: &str =
     "https://minedbuildings.blob.core.windows.net/global-buildings/dataset-links.csv";
@@ -21,9 +24,11 @@ struct Row {
 struct Cli {
     #[arg(long, short)]
     list: bool,
+    #[arg(long, short)]
+    name: String,
 }
 
-fn list_countries() -> Vec<String> {
+fn get_urls() -> Vec<Row> {
     let csv_text = reqwest::blocking::get(CSV_URL)
         .expect("Could not execute get request")
         .text()
@@ -32,13 +37,23 @@ fn list_countries() -> Vec<String> {
     let mut reader = csv::Reader::from_reader(csv_text.as_bytes());
     let iter = reader.deserialize();
 
+    let rows: Vec<Row> = iter
+        .map(|row: Result<Row, csv::Error>| row.unwrap())
+        .collect();
+
+    rows
+}
+
+fn list_countries(rows: Vec<Row>) -> Vec<String> {
+    let locations: Vec<String> = rows.into_iter().map(|row: Row| row.location).collect();
+
     let mut country_set: Vec<String> = Vec::new();
-    iter.map(|row: Result<Row, csv::Error>| row.unwrap().location)
-        .for_each(|location_name| {
-            if !country_set.contains(&location_name) {
-                country_set.push(location_name)
-            }
-        });
+
+    locations.into_iter().for_each(|location| {
+        if !country_set.contains(&location) {
+            country_set.push(location)
+        }
+    });
 
     country_set.sort();
 
@@ -52,17 +67,43 @@ fn main() {
 
     let cli = Cli::parse();
 
+    let rows = get_urls();
+
     if cli.list {
         info!("Fetching list of available countries");
         println!(
             "{:?}",
-            list_countries()
+            list_countries(rows)
                 .into_iter()
                 .for_each(|country_name| println!("- {}", country_name))
         );
+
+        return;
     }
 
-    //reader.records().for_each(|row| println!("{:?}", row));
+    // Filter urls per location name.
+    let location_urls = rows
+        .into_iter()
+        .filter(|row| row.location == cli.name)
+        .map(|row| row.url)
+        .collect::<Vec<String>>();
 
-    //println!("{:?}", resp);
+    let url: String = location_urls[0].clone();
+
+    let gzip_bytes = reqwest::blocking::get(url)
+        .expect("Failed retreiving data from url")
+        .bytes()
+        .expect("Could not deserialize as bytes");
+
+    let mut data_gz = GzDecoder::new(gzip_bytes.as_ref());
+    let mut data_str = String::new();
+    data_gz.read_to_string(&mut data_str).unwrap();
+
+    let items = data_str
+        .split("\n")
+        .filter(|item| item != &"")
+        .map(|item| serde_json::from_str(item).unwrap())
+        .collect::<Vec<Value>>();
+
+    println!("{:?}", items);
 }
