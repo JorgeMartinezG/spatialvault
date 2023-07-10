@@ -60,6 +60,33 @@ fn list_countries(rows: Vec<Row>) -> Vec<String> {
     country_set
 }
 
+fn get_geometries_from_url(url: String) -> Vec<Value> {
+    let gzip_bytes = reqwest::blocking::get(url)
+        .expect("Failed retreiving data from url")
+        .bytes()
+        .expect("Could not deserialize as bytes");
+
+    let mut data_gz = GzDecoder::new(gzip_bytes.as_ref());
+    let mut data_str = String::new();
+    data_gz.read_to_string(&mut data_str).unwrap();
+
+    let items = data_str
+        .split("\n")
+        .filter(|item| item != &"")
+        .map(|item| {
+            serde_json::from_str(item).expect(&format!("Failing deserializing json {}", item))
+        })
+        .map(|feature: Value| {
+            feature
+                .get("geometry")
+                .expect("Missing geometry field")
+                .to_owned()
+        })
+        .collect::<Vec<Value>>();
+
+    items
+}
+
 fn main() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
@@ -90,28 +117,7 @@ fn main() {
 
     let url: String = location_urls[0].clone();
 
-    let gzip_bytes = reqwest::blocking::get(url)
-        .expect("Failed retreiving data from url")
-        .bytes()
-        .expect("Could not deserialize as bytes");
-
-    let mut data_gz = GzDecoder::new(gzip_bytes.as_ref());
-    let mut data_str = String::new();
-    data_gz.read_to_string(&mut data_str).unwrap();
-
-    let items = data_str
-        .split("\n")
-        .filter(|item| item != &"")
-        .map(|item| {
-            serde_json::from_str(item).expect(&format!("Failing deserializing json {}", item))
-        })
-        .map(|feature: Value| {
-            feature
-                .get("geometry")
-                .expect("Missing geometry field")
-                .to_owned()
-        })
-        .collect::<Vec<Value>>();
+    let items = get_geometries_from_url(url);
 
     println!("{:?}", items);
 }
