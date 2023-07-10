@@ -102,7 +102,15 @@ fn main() {
     let items = data_str
         .split("\n")
         .filter(|item| item != &"")
-        .map(|item| serde_json::from_str(item).unwrap())
+        .map(|item| {
+            serde_json::from_str(item).expect(&format!("Failing deserializing json {}", item))
+        })
+        .map(|feature: Value| {
+            feature
+                .get("geometry")
+                .expect("Missing geometry field")
+                .to_owned()
+        })
         .collect::<Vec<Value>>();
 
     println!("{:?}", items);
