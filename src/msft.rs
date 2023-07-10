@@ -83,7 +83,7 @@ fn get_features_from_url(url: String) -> Vec<Value> {
 }
 
 fn create_postgres_table(args: &MsftArgs) {
-    let db_url = match &args.db_url {
+    let db_url = match &args.pg_params.db_url {
         Some(value) => value,
         None => {
             error!("Missing parameter database-url");
@@ -101,7 +101,7 @@ fn create_postgres_table(args: &MsftArgs) {
         }
     };
 
-    let query = format!("CREATE SCHEMA IF NOT EXISTS {}", args.db_schema);
+    let query = format!("CREATE SCHEMA IF NOT EXISTS {}", args.pg_params.db_schema);
 
     match client.execute(&query, &[]) {
         Ok(_num) => (),
@@ -120,7 +120,7 @@ fn create_postgres_table(args: &MsftArgs) {
             )
 
             "#,
-        args.db_schema, args.table_name
+        args.pg_params.db_schema, args.pg_params.table_name
     );
     match client.execute(&query, &[]) {
         Ok(_num) => (),
@@ -175,7 +175,7 @@ fn process_url(url: String, client: &mut Client, args: &MsftArgs) {
 
         let query = format!(
             "INSERT INTO {}.{}(geom) VALUES {}",
-            args.db_schema, args.table_name, st_geoms_query
+            args.pg_params.db_schema, args.pg_params.table_name, st_geoms_query
         );
 
         match client.execute(&query, &[]) {
@@ -195,7 +195,7 @@ pub fn process_command(args: MsftArgs) {
         return;
     }
 
-    let db_url: String = match &args.db_url {
+    let db_url: String = match &args.pg_params.db_url {
         Some(value) => value.to_string(),
         None => {
             error!("Missing parameter database-url");
@@ -203,7 +203,7 @@ pub fn process_command(args: MsftArgs) {
         }
     };
 
-    if args.create_table {
+    if args.pg_params.create_table {
         create_postgres_table(&args);
         return;
     }
