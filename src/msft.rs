@@ -5,24 +5,40 @@ use geojson::{Feature, GeoJson, Value};
 use log::{error, info};
 use postgres::{Client, NoTls};
 use serde::Deserialize;
+use shapefile::record::polygon::Polygon as ShpPolygon;
+use std::cell::RefCell;
+use std::fs::File;
 use std::io::prelude::*;
+use std::io::BufWriter;
 use wkt::ToWkt;
 
 //use flatgeobuf::{FgbCrs, FgbWriter, FgbWriterOptions, GeometryType};
+
+use shapefile::writer::ShapeWriter;
 
 const CSV_URL: &str =
     "https://minedbuildings.blob.core.windows.net/global-buildings/dataset-links.csv";
 
 const CHUNK_SIZE: usize = 5000;
 
+pub type ShapefileWriter = RefCell<ShapeWriter<BufWriter<File>>>;
+pub type PgWriter = (RefCell<Client>, PgParams);
+
 enum Output {
-    Pg((Client, PgParams)),
+    Pg(PgWriter),
+    Shp(ShapefileWriter),
 }
 
 impl Output {
-    pub fn save(&mut self, rows: Vec<Polygon<f64>>) {
+    pub fn save(&self, rows: Vec<Polygon<f64>>) {
         match self {
-            Output::Pg((ref mut client, params)) => pg_save(client, &params, rows),
+            Output::Shp(writer) => {
+                rows.into_iter().for_each(|row| {
+                    let shp: ShpPolygon = row.try_into().unwrap();
+                    writer.borrow_mut().write_shape(&shp).unwrap();
+                });
+            }
+            Output::Pg(params) => pg_save(params, rows),
         }
     }
 }
@@ -97,7 +113,9 @@ fn get_geojson_values(url: String) -> Vec<Value> {
         .collect()
 }
 
-fn pg_save(client: &mut Client, params: &PgParams, rows: Vec<Polygon<f64>>) {
+fn pg_save(enum_params: &PgWriter, rows: Vec<Polygon<f64>>) {
+    let (client, params) = enum_params;
+
     let st_geoms: Vec<String> = rows
         .into_iter()
         .map(|row| format!("ST_GEOMFROMTEXT('{}', 4326)", row.wkt_string()))
@@ -115,7 +133,7 @@ fn pg_save(client: &mut Client, params: &PgParams, rows: Vec<Polygon<f64>>) {
             params.db_schema, params.table_name, st_geoms_query
         );
 
-        match client.execute(&query, &[]) {
+        match client.borrow_mut().execute(&query, &[]) {
             Ok(_num) => (),
             Err(err) => {
                 error!("{}", err);
@@ -174,7 +192,7 @@ fn pg_create_table(args: &MsftArgs) {
     }
 }
 
-fn process_url(url: String, output_obj: &mut Output) {
+fn process_url(url: String) -> Vec<Polygon<f64>> {
     info!("Processing url {url}");
 
     let geojson_polygons = get_geojson_values(url);
@@ -184,7 +202,7 @@ fn process_url(url: String, output_obj: &mut Output) {
         .map(|polygon| Polygon::<f64>::try_from(polygon).unwrap())
         .collect();
 
-    output_obj.save(polygons_geo_types);
+    polygons_geo_types
 }
 
 fn pg_create_client(pg_params: &PgParams) -> Client {
@@ -208,12 +226,14 @@ fn pg_create_client(pg_params: &PgParams) -> Client {
 fn create_output_object(args: &MsftArgs, pg: bool) -> Output {
     match pg {
         true => {
-            let client = pg_create_client(&args.pg_params);
+            let client = RefCell::new(pg_create_client(&args.pg_params));
             let tuple_data = (client, args.pg_params.clone());
             return Output::Pg(tuple_data);
         }
-
-        false => panic!("AAAA"),
+        false => {
+            let writer = ShapeWriter::from_path("polygons.shp").unwrap();
+            Output::Shp(RefCell::new(writer))
+        }
     }
 }
 
@@ -229,11 +249,9 @@ pub fn process_command(args: MsftArgs) {
         return;
     }
 
-    let mut output_obj = create_output_object(&args, true);
+    let output_obj = create_output_object(&args, true);
 
-    let rows = get_urls();
-
-    let location_urls = rows
+    let location_urls = get_urls()
         .into_iter()
         .filter(|row| {
             row.location
@@ -245,7 +263,8 @@ pub fn process_command(args: MsftArgs) {
         .map(|row| row.url)
         .collect::<Vec<String>>();
 
-    location_urls
-        .into_iter()
-        .for_each(|url| process_url(url, &mut output_obj));
+    location_urls[0..3].into_iter().for_each(|url| {
+        let rows = process_url(url.to_string());
+        output_obj.save(rows);
+    })
 }
