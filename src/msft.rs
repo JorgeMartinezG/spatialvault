@@ -13,44 +13,16 @@ use wkt::ToWkt;
 const CSV_URL: &str =
     "https://minedbuildings.blob.core.windows.net/global-buildings/dataset-links.csv";
 
-const CHUNK_SIZE: usize = 2000;
+const CHUNK_SIZE: usize = 5000;
 
 enum Output {
-    Pg(Client),
+    Pg((Client, PgParams)),
 }
 
 impl Output {
-    pub fn save(&mut self, rows: Vec<Polygon<f64>>, args: &MsftArgs) {
+    pub fn save(&mut self, rows: Vec<Polygon<f64>>) {
         match self {
-            Output::Pg(client) => {
-                let st_geoms: Vec<String> = rows
-                    .into_iter()
-                    .map(|row| format!("ST_GEOMFROMTEXT('{}', 4326)", row.wkt_string()))
-                    .collect();
-                // Insert geometries into database.
-                st_geoms[0..2].chunks(CHUNK_SIZE).for_each(|chunk| {
-                    let st_geoms_query = chunk
-                        .iter()
-                        .map(|st_geom| format!("({})", st_geom))
-                        .collect::<Vec<String>>()
-                        .join(",");
-
-                    let query = format!(
-                        "INSERT INTO {}.{}(geom) VALUES {}",
-                        args.pg_params.db_schema, args.pg_params.table_name, st_geoms_query
-                    );
-
-                    println!("{:?}", query);
-
-                    match client.execute(&query, &[]) {
-                        Ok(_num) => (),
-                        Err(err) => {
-                            error!("{}", err);
-                            std::process::exit(1)
-                        }
-                    }
-                })
-            }
+            Output::Pg((ref mut client, params)) => pg_save(client, &params, rows),
         }
     }
 }
@@ -125,7 +97,35 @@ fn get_geojson_values(url: String) -> Vec<Value> {
         .collect()
 }
 
-fn create_postgres_table(args: &MsftArgs) {
+fn pg_save(client: &mut Client, params: &PgParams, rows: Vec<Polygon<f64>>) {
+    let st_geoms: Vec<String> = rows
+        .into_iter()
+        .map(|row| format!("ST_GEOMFROMTEXT('{}', 4326)", row.wkt_string()))
+        .collect();
+    // Insert geometries into database.
+    st_geoms.chunks(CHUNK_SIZE).for_each(|chunk| {
+        let st_geoms_query = chunk
+            .iter()
+            .map(|st_geom| format!("({})", st_geom))
+            .collect::<Vec<String>>()
+            .join(",");
+
+        let query = format!(
+            "INSERT INTO {}.{}(geom) VALUES {}",
+            params.db_schema, params.table_name, st_geoms_query
+        );
+
+        match client.execute(&query, &[]) {
+            Ok(_num) => (),
+            Err(err) => {
+                error!("{}", err);
+                std::process::exit(1)
+            }
+        }
+    })
+}
+
+fn pg_create_table(args: &MsftArgs) {
     let db_url = match &args.pg_params.db_url {
         Some(value) => value,
         None => {
@@ -174,7 +174,7 @@ fn create_postgres_table(args: &MsftArgs) {
     }
 }
 
-fn process_url(url: String, output_obj: &mut Output, args: &MsftArgs) {
+fn process_url(url: String, output_obj: &mut Output) {
     info!("Processing url {url}");
 
     let geojson_polygons = get_geojson_values(url);
@@ -182,13 +182,12 @@ fn process_url(url: String, output_obj: &mut Output, args: &MsftArgs) {
     let polygons_geo_types: Vec<Polygon<f64>> = geojson_polygons
         .iter()
         .map(|polygon| Polygon::<f64>::try_from(polygon).unwrap())
-        //.map(|wkt_polygon| format!("(ST_GEOMFROMTEXT('{}', 4326))", wkt_polygon))
         .collect();
 
-    output_obj.save(polygons_geo_types, args);
+    output_obj.save(polygons_geo_types);
 }
 
-fn create_pg_client(pg_params: &PgParams) -> Client {
+fn pg_create_client(pg_params: &PgParams) -> Client {
     let db_url: String = match &pg_params.db_url {
         Some(value) => value.to_owned(),
         None => {
@@ -197,20 +196,23 @@ fn create_pg_client(pg_params: &PgParams) -> Client {
         }
     };
 
-    let mut client = match Client::connect(&db_url, NoTls) {
+    match Client::connect(&db_url, NoTls) {
         Ok(client) => client,
         Err(err) => {
             error!("{}", err);
             std::process::exit(1)
         }
-    };
-
-    client
+    }
 }
 
 fn create_output_object(args: &MsftArgs, pg: bool) -> Output {
     match pg {
-        true => Output::Pg(create_pg_client(&args.pg_params)),
+        true => {
+            let client = pg_create_client(&args.pg_params);
+            let tuple_data = (client, args.pg_params.clone());
+            return Output::Pg(tuple_data);
+        }
+
         false => panic!("AAAA"),
     }
 }
@@ -223,7 +225,7 @@ pub fn process_command(args: MsftArgs) {
     }
 
     if args.pg_params.create_table {
-        create_postgres_table(&args);
+        pg_create_table(&args);
         return;
     }
 
@@ -245,5 +247,5 @@ pub fn process_command(args: MsftArgs) {
 
     location_urls
         .into_iter()
-        .for_each(|url| process_url(url, &mut output_obj, &args));
+        .for_each(|url| process_url(url, &mut output_obj));
 }

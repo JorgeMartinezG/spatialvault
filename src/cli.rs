@@ -9,7 +9,7 @@ pub enum Cli {
     Msft(MsftArgs),
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct PgParams {
     #[arg(long = "database-url", group = "pg")]
     pub db_url: Option<String>,
