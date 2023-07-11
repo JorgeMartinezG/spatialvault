@@ -1,15 +1,24 @@
 use crate::cli::MsftArgs;
 use flate2::read::GzDecoder;
+use geo_types::geometry::Polygon;
+use geojson::{Feature, GeoJson, Value};
 use log::{error, info};
 use postgres::{Client, NoTls};
 use serde::Deserialize;
-use serde_json::Value;
 use std::io::prelude::*;
+use wkt::ToWkt;
+
+use flatgeobuf::{FgbCrs, FgbWriter, FgbWriterOptions, GeometryType};
 
 const CSV_URL: &str =
     "https://minedbuildings.blob.core.windows.net/global-buildings/dataset-links.csv";
 
 const CHUNK_SIZE: usize = 2000;
+
+enum OutputType {
+    Pg(Client),
+    Fgb(FgbWriter),
+}
 
 #[derive(Deserialize, Debug)]
 struct Row {
@@ -55,7 +64,7 @@ fn list_countries(rows: Vec<Row>) -> () {
         .for_each(|country_name| println!("- {}", country_name));
 }
 
-fn get_features_from_url(url: String) -> Vec<Value> {
+fn get_geojson_values(url: String) -> Vec<Value> {
     let gzip_bytes = reqwest::blocking::get(url)
         .expect("Failed retreiving data from url")
         .bytes()
@@ -65,21 +74,20 @@ fn get_features_from_url(url: String) -> Vec<Value> {
     let mut data_str = String::new();
     data_gz.read_to_string(&mut data_str).unwrap();
 
-    let items = data_str
+    data_str
         .split("\n")
         .filter(|item| item != &"")
         .map(|item| {
-            serde_json::from_str(item).expect(&format!("Failing deserializing json {}", item))
-        })
-        .map(|feature: Value| {
-            feature
-                .get("geometry")
-                .expect("Missing geometry field")
-                .to_owned()
-        })
-        .collect::<Vec<Value>>();
+            let geojson: GeoJson = item.parse::<GeoJson>().unwrap();
+            let polygon_value: Value = Feature::try_from(geojson)
+                .unwrap()
+                .geometry
+                .expect("Geometry not found")
+                .value;
 
-    items
+            return polygon_value;
+        })
+        .collect()
 }
 
 fn create_postgres_table(args: &MsftArgs) {
@@ -131,39 +139,16 @@ fn create_postgres_table(args: &MsftArgs) {
     }
 }
 
-fn into_sql(feature: Value) -> String {
-    let coordinates = &feature
-        .get("coordinates")
-        .expect("coordinates field not found")[0]
-        .as_array()
-        .expect("Could not transform array of coordinates to rust type");
-
-    let coordinates_arr = &coordinates
-        .into_iter()
-        .map(|item| {
-            item.as_array()
-                .expect("Could not transform")
-                .iter()
-                .map(|latlng| latlng.as_f64().unwrap().to_string())
-                .collect::<Vec<String>>()
-                .join(" ")
-        })
-        .collect::<Vec<String>>()
-        .join(",");
-    let st_geom = format!("ST_GEOMFROMTEXT('POLYGON(({coordinates_arr}))', 4326)");
-
-    st_geom
-}
-
 fn process_url(url: String, client: &mut Client, args: &MsftArgs) {
     info!("Processing url {url}");
 
-    let features = get_features_from_url(url);
+    let geojson_polygons = get_geojson_values(url);
 
-    let st_geoms = features
-        .into_iter()
-        .map(|feature| into_sql(feature))
-        .collect::<Vec<String>>();
+    let polygons_geo_types: Vec<Polygon<f64>> = geojson_polygons
+        .iter()
+        .map(|polygon| Polygon::<f64>::try_from(polygon).unwrap())
+        //.map(|wkt_polygon| format!("(ST_GEOMFROMTEXT('{}', 4326))", wkt_polygon))
+        .collect();
 
     // Insert geometries into database.
     st_geoms.chunks(CHUNK_SIZE).for_each(|chunk| {
