@@ -24,12 +24,33 @@ const CHUNK_SIZE: usize = 5000;
 pub type ShapefileWriter = RefCell<ShapeWriter<BufWriter<File>>>;
 pub type PgWriter = (RefCell<Client>, PgParams);
 
+enum OutputType {
+    Pg,
+    Shp,
+    Fgb,
+}
+
 enum Output {
     Pg(PgWriter),
     Shp(ShapefileWriter),
 }
 
 impl Output {
+    fn new(args: &MsftArgs, output_type: OutputType) -> Self {
+        match output_type {
+            OutputType::Pg => {
+                let client = RefCell::new(pg_create_client(&args.pg_params));
+                let tuple_data = (client, args.pg_params.clone());
+                return Output::Pg(tuple_data);
+            }
+            OutputType::Shp => {
+                let writer = ShapeWriter::from_path("polygons.shp").unwrap();
+                Output::Shp(RefCell::new(writer))
+            }
+            _ => panic!("AAA"),
+        }
+    }
+
     pub fn save(&self, rows: Vec<Polygon<f64>>) {
         match self {
             Output::Shp(writer) => {
@@ -223,20 +244,6 @@ fn pg_create_client(pg_params: &PgParams) -> Client {
     }
 }
 
-fn create_output_object(args: &MsftArgs, pg: bool) -> Output {
-    match pg {
-        true => {
-            let client = RefCell::new(pg_create_client(&args.pg_params));
-            let tuple_data = (client, args.pg_params.clone());
-            return Output::Pg(tuple_data);
-        }
-        false => {
-            let writer = ShapeWriter::from_path("polygons.shp").unwrap();
-            Output::Shp(RefCell::new(writer))
-        }
-    }
-}
-
 pub fn process_command(args: MsftArgs) {
     if args.list {
         let rows = get_urls();
@@ -249,7 +256,7 @@ pub fn process_command(args: MsftArgs) {
         return;
     }
 
-    let output_obj = create_output_object(&args, true);
+    let output_obj = Output::new(&args, OutputType::Shp);
 
     let location_urls = get_urls()
         .into_iter()
