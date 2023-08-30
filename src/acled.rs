@@ -238,6 +238,8 @@ pub fn process_command(args: AcledArgs) {
         }
     };
 
+    let query_str = create_query_string(&acled_config, &table_fields);
+
     rc_config.codes.iter().for_each(|(iso, code)| {
         info!("Fetching data for country {:?}", iso);
         let mut page = 1;
@@ -273,8 +275,6 @@ pub fn process_command(args: AcledArgs) {
                 .into_iter()
                 .map(|item: &Value| item.as_object().unwrap())
                 .collect();
-
-            let query_str = create_query_string(&acled_config, &table_fields);
 
             let query_values = items
                 .into_iter()
