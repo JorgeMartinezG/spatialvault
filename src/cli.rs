@@ -1,4 +1,5 @@
 use clap::{Args, Parser};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "spatialvault")]
@@ -7,6 +8,15 @@ use clap::{Args, Parser};
 #[command(about = "Collect geospatial data from multiple sources", long_about = None)]
 pub enum Cli {
     Msft(MsftArgs),
+    Acled(AcledArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct AcledArgs {
+    #[arg(long = "config")]
+    pub config: PathBuf,
+    #[arg(long = "pg-config")]
+    pub pg_config: PathBuf,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -15,7 +25,7 @@ pub struct PgParams {
     pub db_url: Option<String>,
     #[arg(requires="pg", long = "database-schema", default_value_t = String::from("public"))]
     pub db_schema: String,
-    #[arg(requires="pg", long = "table-name", default_value_t = String::from("wld_buildings_microsoft"))]
+    #[arg(requires = "pg", long = "table-name")]
     pub table_name: String,
     #[arg(requires = "pg", long = "create-table", default_value_t = false)]
     pub create_table: bool,

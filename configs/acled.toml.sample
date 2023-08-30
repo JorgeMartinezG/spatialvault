@@ -1,0 +1,12 @@
+[pg]
+table_name = "wld_inc_acled"
+schema = "public"
+
+[api]
+url = "https://api.acleddata.com/acled/read"
+key = "changeme"
+email = "changeme"
+start_date = "2020-01-01"
+
+[codes]
+LBR = 430

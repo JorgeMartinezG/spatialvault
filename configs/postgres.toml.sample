@@ -1,0 +1,6 @@
+host = "localhost"
+port = 5433
+user = "gis"
+password = "gis"
+schema = "public"
+name = "wfp"

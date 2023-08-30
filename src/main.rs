@@ -1,8 +1,11 @@
+mod acled;
 mod cli;
-mod msft;
+mod config;
 
 use clap::Parser;
 use cli::Cli;
+
+pub const GEOMETRY_FIELD: &str = "geom";
 
 fn main() {
     env_logger::builder()
@@ -12,6 +15,7 @@ fn main() {
     let args = Cli::parse();
 
     match args {
-        Cli::Msft(args) => msft::process_command(args),
+        Cli::Acled(args) => acled::process_command(args),
+        _ => panic!("AAAAA"),
     }
 }
