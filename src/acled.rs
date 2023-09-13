@@ -244,15 +244,13 @@ pub fn process_command(args: AcledArgs) {
                 .get(&rc_config.api.url)
                 .query(&request)
                 .send()
-                .expect("Failed performing Acled request")
-                .json()
-                .expect("Failed parsing acled response");
+                .and_then(|resp| resp.json())
+                .expect("Failed performing Acled request");
 
             let count = resp
                 .get("count")
-                .expect("Count field not found")
-                .as_u64()
-                .expect("Count field has no number value");
+                .and_then(|v| v.as_u64())
+                .expect("Invalid count field");
 
             if count == 0 {
                 break;
@@ -260,11 +258,9 @@ pub fn process_command(args: AcledArgs) {
 
             let items: Vec<&Map<String, Value>> = resp
                 .as_object()
-                .unwrap()
-                .get("data")
-                .expect("data field not found")
-                .as_array()
-                .unwrap()
+                .and_then(|o| o.get("data"))
+                .and_then(|o| o.as_array())
+                .expect("Array values not found")
                 .into_iter()
                 .map(|item: &Value| item.as_object().unwrap())
                 .collect();
