@@ -142,18 +142,14 @@ fn add_values_to_query(
 ) -> String {
     let lat = item
         .get("latitude")
-        .expect("latitude field not found")
-        .as_str()
-        .unwrap()
-        .parse::<f64>()
-        .expect("Invalid value");
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .expect("Invalid latitude value");
     let lon = item
         .get("longitude")
-        .expect("longitude field not found")
-        .as_str()
-        .unwrap()
-        .parse::<f64>()
-        .expect("Invalid value");
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .expect("Invalid latitude value");
 
     let geom = format!("ST_GEOMFROMTEXT('POINT ({lat} {lon})', 4326)");
 
@@ -166,12 +162,9 @@ fn add_values_to_query(
 
             let value = item
                 .get(*field_key)
-                .unwrap()
-                .clone()
-                .as_str()
-                .unwrap()
-                .to_string()
-                .replace("'", "''");
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string().replace("'", "''"))
+                .expect("Invalid value");
 
             match field_type {
                 PgType::Varchar => format!("'{value}'"),
